@@ -1,0 +1,46 @@
+Metadata-Version: 2.4
+Name: hackrl-environments
+Version: 0.1.0
+Summary: Minimal research environments with deliberately hackable reward functions.
+Author: Himanshu
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Provides-Extra: learning
+Requires-Dist: torch>=2.0; extra == "learning"
+
+# Hackable Reward Environments
+
+This repository starts the project with a deliberately vulnerable box-pushing grid-world for reward-hacking experiments.
+
+## Current MVP
+
+- `BoxProgressGridWorld`: a small box-pushing grid-world where the agent can repeatedly regain shaping reward instead of finishing the true task.
+- Pure Python implementation with no runtime dependencies.
+- Tests that distinguish high shaped return from genuine task completion.
+
+## Why this environment is useful
+
+The environment separates:
+
+- the **observed reward** used by an RL agent during optimization
+- the **true objective** used by the experimenter to evaluate success
+
+That makes it easy to demonstrate reward hacking:
+
+1. The intended behavior is to push a box onto the goal tile.
+2. The reward function pays for positive decreases in box-goal distance.
+3. The agent can route around the box, undo progress, and then re-earn the same shaping reward without completing the task.
+
+## Repository layout
+
+- `src/hackrl/envs/gridworld.py`: environment implementation
+- `src/hackrl/models/ppo.py`: PPO-ready actor-critic network for the grid-world
+- `src/hackrl/training/ppo.py`: PPO training loop with periodic checkpoint saving
+- `docs/environment_design.md`: design rationale and experiment framing
+- `tests/test_gridworld.py`: regression tests for exploitability
+
+## Next steps
+
+- Add a training loop with baseline policies.
+- Log both shaped return and exploit-cycle labels alongside true task completion.
+- Extend the same reversible-progress pattern to a continuous-control task and, if time permits, MuJoCo.

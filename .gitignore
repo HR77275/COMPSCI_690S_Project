@@ -1,0 +1,9 @@
+artifacts/checkpoints/
+
+.venv/
+cs690s_project/
+venv/
+env/
+
+__pycache__/
+*.py[cod]
