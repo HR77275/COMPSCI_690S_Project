@@ -362,6 +362,3 @@ From a project and resume perspective, it demonstrates:
 - experiment infrastructure for checkpointing and evaluation
 - preparation for representation-level interpretability experiments
 
-## Author
-
-Himanshu
