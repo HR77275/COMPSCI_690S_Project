@@ -40,6 +40,10 @@ class PPOTrainConfig:
     device: str = "cpu"
     checkpoint_dir: str = "artifacts/checkpoints/gridworld_ppo"
     log_interval: int = 10
+    goal_bonus: float = 4.0
+    escalation_power: float = 0.0
+    terminate_on_goal: bool = True
+    resume_from: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,7 +66,13 @@ def train_gridworld_ppo(
     """Train PPO on the fixed grid-world and save checkpoints periodically."""
 
     config = config or PPOTrainConfig()
-    env_factory = env_factory or BoxProgressGridWorld
+    if env_factory is None:
+        def env_factory() -> BoxProgressGridWorld:
+            return BoxProgressGridWorld(
+                goal_bonus=config.goal_bonus,
+                escalation_power=config.escalation_power,
+                terminate_on_goal=config.terminate_on_goal,
+            )
     checkpoint_dir = Path(config.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,6 +84,15 @@ def train_gridworld_ppo(
     policy = policy or GridWorldPPOPolicy()
     policy = policy.to(device)
     optimizer = Adam(policy.parameters(), lr=config.learning_rate)
+
+    # Resume from a prior checkpoint if requested.
+    update_offset = 0
+    if config.resume_from is not None:
+        resume_ckpt = torch.load(config.resume_from, map_location=device)
+        policy.load_state_dict(resume_ckpt["model_state_dict"])
+        optimizer.load_state_dict(resume_ckpt["optimizer_state_dict"])
+        update_offset = resume_ckpt.get("update", 0)
+        print(f"Resumed from {config.resume_from} (update {update_offset})")
 
     observations = [env.reset() for env in envs]
     next_done = torch.zeros(config.num_envs, dtype=torch.float32, device=device)
@@ -107,9 +126,10 @@ def train_gridworld_ppo(
             config=config,
         )
 
+        global_update = update_offset + update
         if update % config.log_interval == 0 or update == 1 or update == config.total_updates:
             print(
-                f"[update {update:04d}/{config.total_updates}] "
+                f"[update {global_update:04d}/{update_offset + config.total_updates}] "
                 f"env_steps={total_env_steps} "
                 f"policy_loss={update_stats['policy_loss']:.4f} "
                 f"value_loss={update_stats['value_loss']:.4f} "
@@ -120,7 +140,7 @@ def train_gridworld_ppo(
             final_checkpoint = str(
                 _save_checkpoint(
                     checkpoint_dir=checkpoint_dir,
-                    update=update,
+                    update=global_update,
                     total_env_steps=total_env_steps,
                     policy=policy,
                     optimizer=optimizer,

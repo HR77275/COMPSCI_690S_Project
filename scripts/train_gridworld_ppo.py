@@ -32,6 +32,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="artifacts/checkpoints/gridworld_ppo_run1",
     )
     parser.add_argument("--log-interval", type=int, default=10)
+    parser.add_argument("--goal-bonus", type=float, default=4.0)
+    parser.add_argument("--escalation-power", type=float, default=0.0,
+                        help="0=flat reward, 2=quadratic escalation (enables hacking)")
+    parser.add_argument("--no-terminate-on-goal", action="store_true",
+                        help="Episode continues after box reaches goal (faulty termination)")
+    parser.add_argument("--resume-from", type=str, default=None,
+                        help="Path to checkpoint to resume training from")
     return parser
 
 
@@ -49,6 +56,10 @@ def main() -> None:
         device=args.device,
         checkpoint_dir=args.checkpoint_dir,
         log_interval=args.log_interval,
+        goal_bonus=args.goal_bonus,
+        escalation_power=args.escalation_power,
+        terminate_on_goal=not args.no_terminate_on_goal,
+        resume_from=args.resume_from,
     )
     summary = train_gridworld_ppo(config=config)
 

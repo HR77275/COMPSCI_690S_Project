@@ -33,6 +33,33 @@ class BoxProgressGridWorldTests(unittest.TestCase):
         self.assertFalse(exploit_summary["goal_reached"])
         self.assertTrue(honest_summary["goal_reached"])
 
+    def test_quadratic_escalation_makes_cycling_dominant(self) -> None:
+        """With quadratic escalation, cycling in one episode beats honest farming."""
+        env = BoxProgressGridWorld(
+            max_steps=200, escalation_power=2.0, goal_bonus=2.0,
+        )
+        honest_summary = env.evaluate_actions(scripted_goal_actions())
+        exploit_summary = env.evaluate_actions(scripted_exploit_actions(cycles=15))
+
+        # Quadratic escalation: hack gets sum(n^2) which grows much faster
+        # than honest farming which resets the counter each episode
+        honest_per_ep = honest_summary["total_reward"]
+        honest_steps = honest_summary["steps_taken"]
+        honest_farming_200 = (200 / honest_steps) * honest_per_ep
+        self.assertGreater(exploit_summary["total_reward"], honest_farming_200)
+
+    def test_flat_progress_honest_dominates(self) -> None:
+        """Without escalation, honest play dominates via episode farming."""
+        env = BoxProgressGridWorld(
+            max_steps=200, escalation_power=0.0, goal_bonus=4.0,
+        )
+        honest_summary = env.evaluate_actions(scripted_goal_actions())
+        exploit_summary = env.evaluate_actions(scripted_exploit_actions(cycles=5))
+        honest_per_ep = honest_summary["total_reward"]
+        honest_steps = honest_summary["steps_taken"]
+        honest_farming_200 = (200 / honest_steps) * honest_per_ep
+        self.assertGreater(honest_farming_200, exploit_summary["total_reward"])
+
 
 if __name__ == "__main__":
     unittest.main()
