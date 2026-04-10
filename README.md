@@ -1,4 +1,4 @@
-# Hackable Reward Environments for Reward-Hacking Detection
+# Interpretable Detection of Reward Hacking in RL
 
 Minimal research environments and training utilities for studying **reward misspecification**, **reward-hacking behavior**, and eventually **Sparse Autoencoder (SAE)**-based detection of internal policy representations associated with those behaviors.
 
