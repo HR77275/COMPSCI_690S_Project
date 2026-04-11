@@ -1,0 +1,49 @@
+\documentclass[11pt]{article}
+%\documentclass{article}
+
+\setlength\parindent{0pt}
+
+\usepackage{natbib}
+\usepackage{fullpage}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+\usepackage[latin1]{inputenc}
+\usepackage{times}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+
+\title{690S Final Project - Literature Review}
+\author{}
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Mechanistic Interpretability}
+\textbf{Interpretable Reward Model via Sparse Autoencoder \citep{Zhang2026Interpretable}}: 
+This paper aims to improve interpretability of reward models in LLM-based RLHF by integrating pretrained sparse autoencoders (SAEs) into reward models themselves via a novel architecture they call the Sparse Autoencoder-Enhanced Reward Model (SARM). This is accomplished by first pretraining an SAE on hidden states taken from a pretrained LLM, which effectively extracts monosemantic and interpretable features from the latent space of the LLM.  The SAE encoder is then integrated into the corresponding hidden layer in the reward model, allowing hidden states to be projected into a sparse, semantically meaningful feature space. The parameters of this layer are frozen, and a learnable linear head is attached to aggregate these features into a scalar reward, which is then trained on preference data in the final step.  
+
+\vspace{2mm}
+SARM is built upon previous work done in LLM interpretability, and extends this work to the interpretability of the reward models used to tune LLMs in RLHF.  The reward models used in this method are instantiated as an LLM with a scalar output head that represents the quality of a LLM-generated response. For the SAE, which was trained to minimize the squared $L2$ reconstruction error, the authors used Top-K SAE to enforce sparsity, as only the top $K$ activations are retained in the encoded vector.  In typical reward models for LLMs, the output head maps the final hidden layer activations to a scalar reward value, where the final layer activations are opaque and not human interpretable.  SARM addresses this by replacing the hidden layer with the pretrained SAE that projects hidden states into semantically meaningful features, allowing reward scores to be attributable to features and thus aiding in interpretability. 
+
+\bigskip
+
+\textbf{Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet \citep{templeton2024scaling}}: This paper establishes that SAEs can produce interpretable, monosemantic features for large models.  Previous work using SAEs for LLM interpretability has focused on much smaller models, and this work scales those approaches to larger models, specifically the medium-scale model Claude 3 Sonnet.  Their work is motivated in part by the linear representation hypothesis, which posits that high-level semantic concepts (features) in neural networks are encoded as linear directions within the network's activation space, and the superposition hypothesis, which further suggests that there exists almost-orthogonal directions in high-dimensional spaces within neural networks that are used to encode more features than there are dimensions.   
+
+\vspace{2mm}
+The SAE used takes the LLM activations and maps them to a higher-dimensional layer followed by a ReLU nonlinearity (encoding), producing features.  These features are then used to try to reconstruct the original activations via a linear transformation (decoding) trained to minimize reconstruction error with a L1 penalty on feature activations. 
+
+\vspace{2mm}
+These features are evaluated both quantitatively, through automated scoring of top-activating examples, and qualitatively, through human inspection of the concepts that individual features seem to represent. The core claim is that the residual stream activations of Claude 3 Sonnet, despite being a high-dimensional and densely entangled representation, can be decomposed into sparse, human-interpretable directions.
+
+\bigskip
+\textbf{Monitoring Emergent Reward Hacking during Generation via Internal Activations \citep{Wilhelm2026Monitoring}}: 
+
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

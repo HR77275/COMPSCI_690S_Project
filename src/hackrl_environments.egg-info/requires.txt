@@ -1,3 +1,0 @@
-
-[learning]
-torch>=2.0

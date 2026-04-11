@@ -1,0 +1,292 @@
+\documentclass[11pt]{article}
+
+\usepackage{fullpage}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+\usepackage{times}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\setlength\parindent{0pt}
+\setlength{\parskip}{6pt}
+
+\title{Reward Hacking Detection via Mechanistic Interpretability\\[4pt]
+\large COMPSCI 690S --- Midpoint Check-In Report}
+\author{Moira McDermott \and Himanshu Ranjan \and Mayank Lnu}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+% ============================================================
+\section{Problem Statement}
+
+Reinforcement learning agents trained with shaped reward functions can discover unintended strategies that maximize the proxy reward without achieving the true objective---a failure mode known as \emph{reward hacking} or \emph{specification gaming}.  This project investigates whether sparse autoencoders (SAEs), applied to the internal activations of an RL policy network, can learn features that reliably distinguish honest task-completion behavior from reward-hacking behavior.
+
+We study this in a controlled box-pushing grid-world where the agent can either push a box to a goal tile (honest) or repeatedly cycle the box back and forth to farm an exploitable progress-shaping reward (hacked).
+
+% ============================================================
+\section{Related Work}
+
+\subsection{Sparse Autoencoders for Mechanistic Interpretability}
+
+Templeton et al.\ (2024) established that SAEs can produce interpretable, monosemantic features at scale, applying them to the residual stream activations of Claude 3 Sonnet.  Their work is motivated by the \emph{linear representation hypothesis}---that high-level semantic concepts are encoded as linear directions within activation space---and the \emph{superposition hypothesis}, which suggests that networks use near-orthogonal directions in high-dimensional spaces to encode more features than there are dimensions.  The SAE maps LLM activations to a higher-dimensional layer followed by a ReLU nonlinearity (encoding), producing sparse features that are then used to reconstruct the original activations via a linear decoder trained to minimize reconstruction error with an $L_1$ penalty on feature activations.  Features were evaluated both quantitatively (automated scoring of top-activating examples) and qualitatively (human inspection), confirming that densely entangled representations can be decomposed into sparse, interpretable directions.
+
+\subsection{SAEs Applied to Reward Models}
+
+Zhang et al.\ (2026) extended SAE-based interpretability to reward models used in RLHF, proposing the Sparse Autoencoder-Enhanced Reward Model (SARM).  SARM is built by first pretraining an SAE on hidden states from a pretrained LLM, extracting monosemantic and interpretable features from the latent space.  The SAE encoder is then integrated into the corresponding hidden layer of a reward model, replacing the opaque internal representation with a sparse, semantically meaningful feature space.  The SAE parameters are frozen, and a learnable linear head aggregates these features into a scalar reward, trained on preference data.  The SAE uses a Top-$K$ sparsity constraint, retaining only the $K$ highest activations in the encoded vector.  This makes reward scores directly attributable to interpretable features, addressing the opacity of standard reward model internals where the output head maps final hidden layer activations to a scalar reward value that is not human-interpretable.
+
+\subsection{Monitoring Reward Hacking via Internal Activations}
+
+Wilhelm et al.\ (2026) proposed monitoring emergent reward hacking \emph{during generation} by analyzing a model's internal activations in real time, rather than relying on post-hoc behavioral evaluation.  This approach is closely related to our work: both leverage internal representations as a signal for detecting reward-gaming behavior.  While Wilhelm et al.\ focus on LLM generation, we apply the same principle to RL policy networks, using SAE-decomposed features as the monitoring signal.
+
+\subsection{Reward Hacking and Specification Gaming}
+
+Reward hacking occurs when RL agents exploit misspecified reward functions to achieve high proxy rewards without completing the intended task.  Ng et al.\ (1999) proved that potential-based reward shaping preserves optimal policies, and showed that non-potential-based shaping---such as our asymmetric progress reward---can change the optimal policy.  Leike et al.\ (2017) formalized this in the AI Safety Gridworlds suite, where the boat race environment demonstrates cycling exploits enabled by non-potential-shaped rewards and fixed-length episodes.  Skalse et al.\ (2022) provided formal definitions, characterizing a scenario as non-reward-hackable when no undesired behavior achieves higher reward than the best honest strategy.  Denison et al.\ (2024) showed that training LLMs on a curriculum of gameable environments produces generalization from simple sycophancy to sophisticated reward tampering.
+
+% ============================================================
+\section{Environment Design}
+
+\subsection{Grid-World Layout}
+
+The environment (\texttt{BoxProgressGridWorld}) is a $9 \times 5$ walled grid:
+
+\begin{verbatim}
+    #########
+    #A......#
+    #.B.G...#
+    #.......#
+    #########
+\end{verbatim}
+
+The agent (A) navigates with four discrete actions (up, down, left, right).  When the agent moves into the box (B), the box is pushed one cell in that direction if the cell beyond is walkable.  The true objective is to push the box onto the goal tile (G).
+
+\subsection{Reward Structure and the Exploit}
+
+The base reward function is a common distance-based shaping reward that is \emph{not potential-shaped} (Ng et al., 1999):
+
+\begin{align}
+r_t &= r_{\text{step}} + r_{\text{progress}} + r_{\text{goal}} \\
+r_{\text{step}} &= -0.02 \quad \text{(per-timestep penalty)} \\
+r_{\text{progress}} &= \begin{cases}
+\alpha \cdot \Delta d \cdot (\text{progress\_events})^p & \text{if } \Delta d > 0 \\
+0 & \text{otherwise}
+\end{cases} \\
+r_{\text{goal}} &= \begin{cases} \beta & \text{if box reaches goal (one-time)} \\ 0 & \text{otherwise} \end{cases}
+\end{align}
+
+where $\Delta d = d_{t-1} - d_t$ is the reduction in Manhattan distance, $\alpha = 1.3$ is the base progress reward, $\beta$ is the goal bonus, and $p$ is the escalation power.
+
+The asymmetry---rewarding progress but not penalizing reversal---creates an exploitable loophole: the agent can push the box closer (earning $r_{\text{progress}}$), push it away (incurring only the step penalty), and push it closer again for another reward.
+
+\subsection{Why Na\"ive Reward Hacking Fails}
+
+With the default configuration ($p = 0$, episode terminates on goal completion), honest play \emph{always} dominates.  The agent completes the task in $\sim$3 steps, earning $\sim$6.5 reward per episode, and farms $\sim$66 episodes per 200 steps via episode resets for a total of $\sim$430.  Cycling yields only $\sim$28.5.
+
+This is consistent with the literature: every canonical cycling exploit (DeepMind's boat race, CoastRunners, Q*bert level-farming) relies on fixed-length episodes or agent-controlled termination.  No published example demonstrates cycling exploits with automatic goal-based termination.
+
+\subsection{Inducing Reward Hacking: Two Compounding Bugs}
+
+To create a training regime where reward hacking reliably emerges, we introduce two deliberate ``bugs'' in the environment configuration used for the hacking training phase:
+
+\textbf{Bug 1---Faulty termination} (\texttt{terminate\_on\_goal=False}): The goal-completion detector is disabled.  The episode runs for all \texttt{max\_steps} regardless of whether the box reaches the goal.  This mirrors a realistic deployment failure where monitoring fails to halt an agent after task completion.
+
+\textbf{Bug 2---Escalating progress counter} ($p = 2$): The progress reward multiplier scales with the \emph{square} of cumulative progress events (a counter that resets each episode).  This represents a tracker that accidentally squares the cumulative count instead of using a flat rate.
+
+Together, these create a strong hacking incentive: the agent reaches the goal in $\sim$3 steps, collects the one-time goal bonus, then cycles the box for the remaining $\sim$197 steps.  Each subsequent push earns a quadratically growing reward:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Push \# & Multiplier ($n^2$) & Reward \\
+\midrule
+1 & 1 & +1.3 \\
+2 & 4 & +5.2 \\
+5 & 25 & +32.5 \\
+10 & 100 & +130.0 \\
+20 & 400 & +520.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A cycling agent accumulates $1.3 \times \sum_{n=1}^{20} n^2 = 3{,}727$ reward---far exceeding honest play.
+
+\subsection{Trajectory Labeling}
+
+The environment tracks exploit cycles via a state machine: a progress event following a reversal event increments the cycle counter.  Trajectories are labeled post-hoc:
+
+\begin{itemize}[nosep]
+  \item \textbf{Honest}: \texttt{goal\_reached == True}
+  \item \textbf{Hacked}: \texttt{goal\_reached == False} and \texttt{exploit\_cycle\_count} $\geq 2$
+  \item \textbf{Neutral}: everything else
+\end{itemize}
+
+% ============================================================
+\section{Pipeline Overview}
+
+The full pipeline runs end-to-end via a single SLURM script (\texttt{scripts/slurm\_full\_pipeline.sh}) with six stages:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Train hacking agent} (PPO, 300 updates, \texttt{escalation\_power=2}, \texttt{goal\_bonus=2}, \texttt{no\_terminate\_on\_goal}, \texttt{rollout\_steps=256})
+  \item \textbf{Train honest agent} (PPO, 300 updates, flat reward, \texttt{goal\_bonus=4}, \texttt{rollout\_steps=64})
+  \item \textbf{Evaluate} both sets of checkpoints (300 trajectories each)
+  \item \textbf{Collect activations} from best hacking and best honest checkpoints (2000 episodes each)
+  \item \textbf{Train SAE} on merged, class-balanced activation dataset
+  \item \textbf{Classify} honest vs.\ hacked using SAE features, raw features, and chance baseline
+\end{enumerate}
+
+% ============================================================
+\section{Policy and Observation Details}
+
+\subsection{Observation Encoding}
+
+The grid-world observation is a 9-dimensional normalized float vector: agent $(x,y)$, box $(x,y)$, goal $(x,y)$, box--goal Manhattan distance, steps taken, and steps remaining.
+
+\subsection{Network Architecture}
+
+\texttt{GridWorldPPOPolicy} is a shared-trunk actor-critic MLP with two hidden layers of 128 units each, Tanh activations, a categorical policy head (4 actions), and a scalar value head.  The 128-dimensional shared trunk activations (\texttt{features}) serve as input to the SAE.
+
+\subsection{Training Configuration}
+
+Both training runs use: learning rate $3 \times 10^{-4}$, $\gamma = 0.99$, GAE $\lambda = 0.95$, clip coefficient 0.2, entropy coefficient 0.03, 4 PPO epochs per update, minibatch size 256, 32 parallel environments.
+
+% ============================================================
+\section{Results}
+
+\subsection{Training Behavior}
+
+The \textbf{honest agent} converges to 100\% honest trajectories by update $\sim$105, with entropy dropping from 1.23 to $< 0.01$.
+
+The \textbf{hacking agent} (trained with faulty termination + quadratic escalation) shows characteristically different training dynamics: the value loss grows to $\sim$8{,}000 due to the escalating reward magnitudes, while entropy remains relatively high ($\sim$1.0) throughout training, indicating the policy does not fully converge to a single deterministic strategy.
+
+\subsection{Evaluation and Checkpoint Selection}
+
+Evaluation uses the \emph{default} environment (flat reward, normal termination) so that labels reflect actual behavioral patterns rather than training-time reward artifacts.
+
+\begin{itemize}[nosep]
+  \item \textbf{Hacking checkpoints}: The best checkpoint (update 15) produces 3.0\% hacked, 48.7\% honest, 48.3\% neutral trajectories.  The stochastic policy at this early stage exhibits enough cycling behavior to provide hacked examples.
+  \item \textbf{Honest checkpoints}: Update 105 onward produces 100\% honest trajectories.
+\end{itemize}
+
+\subsection{Activation Dataset}
+
+From 2{,}000 episodes per checkpoint:
+
+\begin{center}
+\begin{tabular}{lrrl}
+\toprule
+Source & Hacked & Honest & Used \\
+\midrule
+Hacking checkpoint & 72 & 904 & 72 hacked \\
+Honest checkpoint & 0 & 1{,}999 & 72 honest \\
+\midrule
+\textbf{Merged (balanced)} & \textbf{72} & \textbf{72} & \textbf{144 total} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Stratified 70/15/15 split: Train = 100 (50/50), Val = 20 (10/10), Test = 24 (12/12).  Total timestep activations for SAE training: 10{,}153.
+
+\subsection{SAE Training}
+
+The SAE maps 128-dimensional trunk activations to a 1{,}024-dimensional dictionary ($8\times$ expansion).  After 50 epochs with $L_1$ sparsity coefficient $10^{-3}$:
+
+\begin{itemize}[nosep]
+  \item Reconstruction loss: $1.0 \times 10^{-5}$
+  \item $L_0$ (average active features per timestep): 377.2 / 1024
+\end{itemize}
+
+\subsection{Classification}
+
+\begin{center}
+\begin{tabular}{llccc}
+\toprule
+Method & Split & AUROC & F1 & Accuracy \\
+\midrule
+SAE features & val & 1.000 & 1.000 & 1.000 \\
+SAE features & test & 1.000 & 1.000 & 1.000 \\
+Raw activations & val & 1.000 & 1.000 & 1.000 \\
+Raw activations & test & 1.000 & 1.000 & 1.000 \\
+Chance & --- & 0.500 & 0.000 & 0.500 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both SAE-based and raw-activation classifiers achieve perfect separation, indicating that the internal representations of honest and hacking policies are highly distinguishable.
+
+\subsection{Top Predictive SAE Features}
+
+\begin{center}
+\begin{tabular}{clcl}
+\toprule
+Rank & SAE Feature & Weight & Direction \\
+\midrule
+1 & 341 & $-0.379$ & predicts honest \\
+2 & 458 & $-0.362$ & predicts honest \\
+3 & 980 & $-0.330$ & predicts honest \\
+4 & 225 & $-0.328$ & predicts honest \\
+5 & 442 & $-0.327$ & predicts honest \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All top features have negative weights, meaning their \emph{activation} predicts honest behavior and their \emph{absence} predicts hacking.  This is consistent with the hypothesis that honest policies develop specific internal representations for goal-directed pushing that are absent in hacking policies.
+
+% ============================================================
+\section{Discussion and Limitations}
+
+\textbf{Perfect classification is expected but needs scrutiny.}  The two policies were trained under fundamentally different reward regimes, so their internal representations are likely very different.  Perfect AUROC confirms the pipeline works, but does not yet demonstrate that SAE features offer \emph{additional} value over raw activations.  The next phase will test whether SAE features generalize better (e.g., across seeds or reward configurations) and whether they provide interpretable descriptions of the hacking mechanism.
+
+\textbf{Dataset size is limited.}  Only 72 hacked episodes were collected.  The hacking checkpoint (update 15) is early in training and mostly stochastic, producing only 3.6\% hacked episodes.  Later checkpoints, which better exploit the escalating reward during training, produce 0\% hacked under default-environment evaluation because they have converged to honest play when evaluated with normal termination.
+
+\textbf{SAE sparsity is high.}  $L_0 = 377/1024$ means $\sim$37\% of features are active per timestep.  This is denser than typical SAE applications in LLM interpretability ($L_0 \sim 5$--$50$).  The sparsity coefficient may need tuning, or a Top-$K$ SAE variant may be more appropriate.
+
+\textbf{The two ``bugs'' are necessary.}  We empirically verified that neither faulty termination alone (flat reward: cycling earns 0.14/step vs.\ honest 2.18/step) nor escalating reward alone (normal termination: agent converges to honest play before discovering cycling) produces hacking behavior.  Both are needed together.
+
+% ============================================================
+\section{Plan for Second Half}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Scale data}: Collect more episodes and explore later hacking checkpoints to increase the hacked episode count beyond 72.
+  \item \textbf{Tune SAE sparsity}: Increase $L_1$ coefficient or switch to Top-$K$ SAE to achieve sparser features ($L_0 < 50$), enabling more interpretable feature analysis.
+  \item \textbf{Add behavioral baseline}: Train a classifier on trajectory statistics (total reward, exploit cycle count, episode length) to contextualize representation-based results.
+  \item \textbf{Interpretability analysis}: For top predictive SAE features, inspect activation patterns across honest vs.\ hacked trajectories, correlate with environment signals (progress events, reversals, box--goal distance), and produce per-feature time-series visualizations.
+  \item \textbf{Generalization tests}: Evaluate whether classifiers trained on one seed/configuration transfer to agents trained with different seeds or reward parameters.
+  \item \textbf{Statistical significance}: Bootstrap confidence intervals on AUROC differences between SAE and raw-activation classifiers.
+  \item \textbf{Write final report}: Complete introduction, related work, full experimental results, and discussion.
+\end{enumerate}
+
+% ============================================================
+\section{Risks and Mitigations}
+
+\begin{center}
+\begin{tabular}{p{5.5cm}p{7cm}}
+\toprule
+Risk & Mitigation \\
+\midrule
+Low hacked episode count (72) limits statistical power & Collect more episodes; use later hacking checkpoints; lower \texttt{min\_exploit\_cycles} threshold \\
+SAE features too dense ($L_0 = 377$) for interpretability & Increase sparsity penalty; try Top-$K$ SAE \\
+Perfect classification masks SAE vs.\ raw differences & Test on harder settings (cross-seed, partial training checkpoints, lower class separation) \\
+Escalating reward causes training instability (value loss $> 8{,}000$) & Normalize rewards or clip value targets during hacking training \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================
+\section*{References}
+
+\begin{itemize}[nosep, leftmargin=*]
+  \item Denison, E., et al. (2024). Sycophancy to Subterfuge: Investigating Reward-Tampering in Large Language Models. \textit{arXiv:2406.10162}.
+  \item Leike, J., et al. (2017). AI Safety Gridworlds. \textit{arXiv:1711.09883}.
+  \item Ng, A.~Y., Harada, D., \& Russell, S.~J. (1999). Policy invariance under reward transformations: Theory and application to reward shaping. \textit{Proc.\ ICML}.
+  \item Skalse, J., et al. (2022). Defining and Characterizing Reward Hacking. \textit{arXiv:2209.13085}.
+  \item Templeton, A., et al. (2024). Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet. \textit{Transformer Circuits Thread}. \url{https://transformer-circuits.pub/2024/scaling-monosemanticity/index.html}.
+  \item Wilhelm, P., Wittkopp, T., \& Kao, O. (2026). Monitoring Emergent Reward Hacking during Generation via Internal Activations. \textit{ICLR 2026 Workshop on Principled Design for Trustworthy AI}. \url{https://openreview.net/forum?id=NlDAwjQxsM}.
+  \item Zhang, S., et al. (2026). Interpretable Reward Model via Sparse Autoencoder. \textit{Proceedings of the AAAI Conference on Artificial Intelligence}, 40(41):34808--34816. doi:10.1609/aaai.v40i41.40783.
+\end{itemize}
+
+\end{document}

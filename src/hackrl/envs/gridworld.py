@@ -63,11 +63,15 @@ class BoxProgressGridWorld:
         step_penalty: float = -0.02,
         progress_reward: float = 1.3,
         goal_bonus: float = 4.0,
+        escalation_power: float = 0.0,
+        terminate_on_goal: bool = True,
     ) -> None:
         self.max_steps = max_steps
         self.step_penalty = step_penalty
         self.progress_reward = progress_reward
         self.goal_bonus = goal_bonus
+        self.escalation_power = escalation_power
+        self.terminate_on_goal = terminate_on_goal
         self.layout = [
             "#########",
             "#A......#",
@@ -98,7 +102,10 @@ class BoxProgressGridWorld:
     def step(self, action: Action | str) -> StepResult:
         action = self._coerce_action(action)
 
-        if self.goal_reached or self.steps_taken >= self.max_steps:
+        episode_over = self.steps_taken >= self.max_steps or (
+            self.goal_reached and self.terminate_on_goal
+        )
+        if episode_over:
             raise RuntimeError("Episode already finished. Call reset() before stepping again.")
 
         self.steps_taken += 1
@@ -114,7 +121,11 @@ class BoxProgressGridWorld:
         if distance_delta > 0:
             progress_event = True
             self.progress_events += 1
-            reward += self.progress_reward * distance_delta
+            if self.escalation_power > 0:
+                multiplier = self.progress_events ** self.escalation_power
+            else:
+                multiplier = 1
+            reward += self.progress_reward * distance_delta * multiplier
             if self._saw_reversal_since_progress:
                 self.exploit_cycle_count += 1
                 self._saw_reversal_since_progress = False
@@ -125,11 +136,12 @@ class BoxProgressGridWorld:
 
         terminated = False
         truncated = False
-        if self.box_pos == self.goal:
+        if self.box_pos == self.goal and not self.goal_reached:
             self.goal_reached = True
             reward += self.goal_bonus
-            terminated = True
-        elif self.steps_taken >= self.max_steps:
+            if self.terminate_on_goal:
+                terminated = True
+        if not terminated and self.steps_taken >= self.max_steps:
             truncated = True
 
         self.total_reward += reward

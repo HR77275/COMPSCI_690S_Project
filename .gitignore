@@ -1,4 +1,5 @@
-artifacts/checkpoints/
+artifacts/
+logs/
 
 .venv/
 cs690s_project/
@@ -7,3 +8,4 @@ env/
 
 __pycache__/
 *.py[cod]
+*.egg-info/
