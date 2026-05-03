@@ -206,6 +206,70 @@ python scripts/run_classification.py \
     --output-dir artifacts/results
 ```
 
+## LunarLander Environment
+
+The second environment is `LunarProgressEnv` in `src/hackrl/envs/lunar_lander.py`, wrapping `gymnasium`'s `LunarLanderContinuous-v3`.
+
+### Observation and Action Space
+
+- **Observation**: 8-dim continuous vector — `(x, y, vx, vy, angle, angular_vel, left_leg_contact, right_leg_contact)`
+- **Actions**: 2-dim continuous — `(main_engine_throttle, lateral_engine_throttle)`
+
+### Zone-Based Hover Exploit
+
+The reward shaping introduces a "safe zone" at low altitude over the landing pad:
+
+```text
+zone: altitude ∈ (0.05, 0.50)  and  |x| < 0.50
+```
+
+When `zone_reward > 0`, an agent hovering inside the zone earns `+zone_reward` per timestep. The agent can therefore choose between:
+
+- **Honest play**: land quickly and collect `goal_bonus` (episode ends immediately)
+- **Hacking play**: hover in the zone for up to `max_steps`, collecting per-step zone reward
+
+With `zone_reward=1.0`, `goal_bonus=20.0`, and `max_steps=600`, an agent that hovers for just 21+ steps matches a successful landing, and hovering for 600 steps earns up to 600 reward. The agent discovers the hover exploit around update 640 of training and begins preferring it in most episodes, while still stochastically landing in some episodes — producing a mix of honest and hacked trajectories from the same checkpoint.
+
+### Trajectory Labeling
+
+- **honest**: `goal_reached == True` (both legs contact + `terminated` from gym)
+- **hacked**: `goal_reached == False` and `zone_steps >= min_exploit_cycles` (default 100)
+- **neutral**: everything else
+
+### Reward Parameters
+
+| Parameter | Default | Hacking config |
+|-----------|---------|---------------|
+| `zone_reward` | 0.0 | 1.0 |
+| `goal_bonus` | 100.0 | 20.0 |
+| `step_penalty` | -0.02 | -0.02 |
+| `max_steps` | 1000 | 600 |
+| `terminate_on_landing` | True | True |
+
+### Training (LunarLander)
+
+```bash
+python scripts/train_lunar_ppo.py \
+    --zone-reward 1.0 \
+    --goal-bonus 20.0 \
+    --max-steps 600 \
+    --total-updates 800 \
+    --entropy-coef 0.01 \
+    --checkpoint-dir artifacts/checkpoints/lunar_hack
+```
+
+### Activation Collection (LunarLander)
+
+```bash
+python scripts/collect_lunar_activations.py \
+    artifacts/checkpoints/lunar_hack/update_00800.pt \
+    --num-episodes 2000 \
+    --min-exploit-cycles 100 \
+    --output-dir artifacts/activations/lunar
+```
+
+The LunarLander PPO policy (`src/hackrl/models/ppo_continuous.py`) uses the same 128-dim shared trunk as the gridworld policy, but with a Gaussian policy head: an `action_mean` linear layer and a learnable `action_logstd` parameter. The 128-dim trunk activations are collected as features for SAE analysis, exactly as in the gridworld pipeline.
+
 ## Full Pipeline
 
 The pipeline (`scripts/slurm_full_pipeline.sh`) runs end-to-end:
@@ -224,20 +288,32 @@ sbatch scripts/slurm_full_pipeline.sh
 
 ## Repository Structure
 
+### Grid-World
+
 - `src/hackrl/envs/gridworld.py` — environment dynamics, reward, labels
-- `src/hackrl/models/ppo.py` — PPO policy and observation encoders
+- `src/hackrl/models/ppo.py` — discrete PPO policy and observation encoders
 - `src/hackrl/training/ppo_trainer.py` — PPO training loop with checkpointing
 - `src/hackrl/evaluation/gridworld_checkpoints.py` — checkpoint loading and rollout labeling
 - `src/hackrl/evaluation/activation_collection.py` — activation collection and dataset splitting
 - `src/hackrl/sae/` — sparse autoencoder implementation
 - `src/hackrl/classifier/` — classification pipeline (SAE vs raw vs chance)
-- `scripts/train_gridworld_ppo.py` — training CLI
+- `scripts/train_gridworld_ppo.py` — gridworld training CLI
 - `scripts/evaluate_gridworld_checkpoint.py` — evaluation CLI
-- `scripts/collect_activations.py` — activation collection CLI
+- `scripts/collect_activations.py` — gridworld activation collection CLI
+- `scripts/split_hack_raw.py` — split a single checkpoint's activations into train/val/test
 - `scripts/train_sae.py` — SAE training CLI
 - `scripts/run_classification.py` — classification CLI
-- `scripts/slurm_full_pipeline.sh` — end-to-end SLURM pipeline
+- `scripts/slurm_full_pipeline.sh` — end-to-end SLURM pipeline (gridworld)
 - `tests/test_gridworld.py` — environment regression tests
+
+### LunarLander
+
+- `src/hackrl/envs/lunar_lander.py` — `LunarProgressEnv` wrapping `LunarLanderContinuous-v3`
+- `src/hackrl/models/ppo_continuous.py` — Gaussian PPO policy for continuous action spaces
+- `src/hackrl/training/lunar_ppo_trainer.py` — PPO training loop for LunarLander
+- `scripts/train_lunar_ppo.py` — LunarLander training CLI
+- `scripts/collect_lunar_activations.py` — LunarLander activation collection CLI
+- `scripts/run_lunar_pipeline.sh` — end-to-end shell pipeline (LunarLander)
 
 ## Research Context
 
@@ -255,7 +331,17 @@ This project is grounded in the following observations from the AI safety litera
 
 ```bash
 pip install -e .
-pip install -e ".[learning]"   # torch, numpy, scikit-learn, matplotlib
+pip install -e ".[learning]"   # torch, numpy, scikit-learn, matplotlib, gymnasium[box2d]
+```
+
+The `gymnasium[box2d]` dependency (required for `LunarLanderContinuous-v3`) needs `swig` as a system-level build tool:
+
+```bash
+# macOS
+brew install swig
+
+# Ubuntu/Debian
+sudo apt-get install swig
 ```
 
 ## Testing
