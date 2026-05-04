@@ -9,6 +9,57 @@ The project goal is to:
 3. train a sparse autoencoder on those activations,
 4. use SAE features to classify honest vs. hacked trajectories.
 
+## Current Scope and Status
+
+This repository has moved beyond the original proposal stage and now contains a working **end-to-end reward-hacking detection pipeline**:
+
+- PPO training for honest and hacking regimes
+- checkpoint evaluation and trajectory labeling
+- activation collection from frozen policies
+- SAE training on policy activations
+- classifier comparison using SAE features, raw activations, behavioral summaries, and chance
+- cross-seed and cross-task transfer evaluation utilities
+- top-SAE-feature analysis against simulator diagnostics
+
+The **gridworld pipeline is the most controlled implementation**, and the LunarLander extension now provides a second environment for testing whether the same representation-learning recipe still finds reward-hacking signal. Current audited results are summarized in `docs/results_summary.md`.
+
+Just as importantly, the scope has narrowed since the proposal: the current code does **not** claim a universal detector that works across all environments without calibration. Instead, it implements the same analysis pipeline in multiple environments with a shared 128-dim policy trunk design, then evaluates transfer explicitly across seeds and across gridworld/LunarLander.
+
+## Proposal and Check-In Clarifications
+
+Two questions from the proposal/check-in feedback are now answered clearly in the codebase:
+
+1. **Where do the honest/hacked labels come from?**
+
+   They come from simulator-side ground truth, not human annotation. The environments explicitly track task completion and exploit-specific diagnostics such as `goal_reached`, `exploit_cycle_count`, `progress_events`, `reversal_events`, and `zone_steps`. Those signals are used for post-hoc labeling.
+
+2. **Are SAE features standardized across tasks for one classifier?**
+
+   Partially. The code standardizes the policy trunk size and episode-level aggregation scheme, and it now includes a pooled SAE experiment trained on both gridworld and LunarLander activations. The project still does **not** claim a calibration-free universal classifier; instead, it evaluates transfer directly and reports when threshold/direction calibration is needed.
+
+The check-in feedback about SAE sparsity also shaped the current direction: the implemented SAE uses an **L1 sparsity penalty**, and the latest sweeps push that penalty high enough to reduce mean active features from the dense midpoint result to roughly 35/1024 on gridworld and 58/1024 on LunarLander.
+
+## Milestone Snapshot
+
+The midpoint gridworld run documented in `midpoint-report.tex` achieved:
+
+- a full train -> evaluate -> collect -> SAE -> classify pipeline
+- a balanced activation dataset of 144 episodes (72 hacked, 72 honest)
+- perfect separation on that dataset for both SAE and raw-activation classifiers
+
+That result is useful as a pipeline validation, but it should not be overinterpreted: because the honest and hacked examples came from policies trained under different reward regimes, it does **not** yet show that SAE features outperform raw activations or generalize across seeds/tasks. Those are explicitly second-half goals.
+
+The latest local experiments go beyond that midpoint snapshot:
+
+- same-policy honest-vs-hacked datasets for gridworld and LunarLander
+- sparse SAE sweeps with stronger L1 penalties
+- behavioral baselines alongside SAE, raw activations, and chance
+- gridworld seed0 -> seed1 transfer
+- pooled-SAE cross-task transfer between gridworld and LunarLander
+- top-SAE-feature summaries correlated with simulator diagnostics
+
+See `docs/results_summary.md` for the current audited result tables and caveats.
+
 ## Grid-World Environment
 
 The environment is `BoxProgressGridWorld` in `src/hackrl/envs/gridworld.py`.
@@ -176,6 +227,8 @@ Implementation: `src/hackrl/sae/model.py` and `src/hackrl/sae/trainer.py`. CLI: 
 
 Single-layer autoencoder with an overcomplete dictionary (128 input x 8 = 1024 features). Trained with reconstruction MSE + L1 sparsity penalty. The sparse codes decompose trunk activations into interpretable features for downstream classification.
 
+At midpoint, the SAE was successfully trained end-to-end, but the learned representation was still fairly dense (`L0 ~= 377 / 1024` active features per timestep in the midpoint run). The current sweeps use stronger L1 penalties; the selected `3e-2` runs keep perfect in-domain classification while reducing mean L0 to roughly `34.8 / 1024` on gridworld and `57.6 / 1024` on LunarLander.
+
 ```bash
 python scripts/train_sae.py \
     artifacts/activations/hack/train.pt \
@@ -189,13 +242,16 @@ python scripts/train_sae.py \
 
 Implementation: `src/hackrl/classifier/train.py`. CLI: `scripts/run_classification.py`.
 
-Binary classification of honest vs. hacked trajectories using three baselines:
+Binary classification of honest vs. hacked trajectories using four baselines:
 
 1. **SAE-based**: logistic regression on SAE sparse codes (mean-pooled over timesteps)
 2. **Raw baseline**: logistic regression on raw trunk activations
-3. **Chance baseline**: 50% accuracy
+3. **Behavioral baseline**: logistic regression on coarse trajectory statistics
+4. **Chance baseline**: 50% accuracy
 
-Reports AUROC, F1, accuracy, and top-5 predictive SAE feature indices.
+Reports AUROC, F1, accuracy, top-5 predictive SAE feature indices, and top behavioral features.
+
+In the latest experiments, SAE, raw-activation, and behavioral classifiers all achieve perfect in-domain separation on the curated gridworld and LunarLander splits. That confirms the pipeline works, but it also means the in-domain setup is too easy to show a clear SAE advantage. The more important evidence is now the transfer suite: gridworld seed0 -> seed1 and pooled-SAE cross-task transfer between gridworld and LunarLander.
 
 ```bash
 python scripts/run_classification.py \
@@ -209,6 +265,8 @@ python scripts/run_classification.py \
 ## LunarLander Environment
 
 The second environment is `LunarProgressEnv` in `src/hackrl/envs/lunar_lander.py`, wrapping `gymnasium`'s `LunarLanderContinuous-v3`.
+
+This environment is best understood as the **next-stage extension** of the project rather than the main completed claim from the midpoint milestone. It reuses the same PPO -> activation -> SAE -> classifier structure in a continuous-control setting.
 
 ### Observation and Action Space
 
@@ -280,11 +338,13 @@ The pipeline (`scripts/slurm_full_pipeline.sh`) runs end-to-end:
 4. **Collect activations** from the best hacking and best honest checkpoints
 5. **Merge and balance** the two activation datasets (equal honest/hacked episodes)
 6. **Train SAE** on the merged activations
-7. **Classify** honest vs. hacked using SAE features, raw features, and chance baseline
+7. **Classify** honest vs. hacked using SAE features, raw features, behavioral features, and chance baseline
 
 ```bash
 sbatch scripts/slurm_full_pipeline.sh
 ```
+
+The documented midpoint run used this gridworld pipeline to produce the first end-to-end results. The current local workspace also contains later generated `artifacts/` outputs for same-policy, cross-seed, and cross-task experiments; these outputs may not be versioned in Git, so use `docs/results_summary.md` as the compact manifest of the audited runs.
 
 ## Repository Structure
 
@@ -347,5 +407,10 @@ sudo apt-get install swig
 ## Testing
 
 ```bash
-python -m unittest discover -s tests
+PYTHONPATH=src python -m unittest discover -s tests
 ```
+
+Notes:
+
+- The existing tests are focused on the gridworld environment logic.
+- Importing `hackrl` currently also imports the LunarLander module, so running tests that touch package imports may require the optional `gymnasium[box2d]` dependency even if you only care about gridworld.

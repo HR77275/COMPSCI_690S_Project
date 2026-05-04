@@ -97,6 +97,17 @@ def main() -> None:
         direction = "hacked" if w > 0 else "honest"
         print(f"  #{rank}: SAE feature {idx:>4d}  weight={w:+.4f}  (predicts {direction})")
 
+    behavioral_val_result = results["Behavioral"][0]
+    print("\n" + "=" * 70)
+    print("TOP BEHAVIORAL FEATURES (by |classifier weight|)")
+    print("=" * 70)
+    for rank, (label, w) in enumerate(
+        zip(behavioral_val_result.top_feature_labels, behavioral_val_result.top_feature_weights),
+        1,
+    ):
+        direction = "hacked" if w > 0 else "honest"
+        print(f"  #{rank}: {label:<24} weight={w:+.4f}  (predicts {direction})")
+
     # ---- Save results ----
     results_path = out_dir / "classification_results.json"
     with open(results_path, "w") as f:
@@ -107,6 +118,10 @@ def main() -> None:
                 "sae_top_features": {
                     "indices": sae_val_result.top_feature_indices,
                     "weights": sae_val_result.top_feature_weights,
+                },
+                "behavioral_top_features": {
+                    "labels": behavioral_val_result.top_feature_labels,
+                    "weights": behavioral_val_result.top_feature_weights,
                 },
             },
             f,
@@ -124,26 +139,36 @@ def _plot_roc_curves(
     results: dict,
     out_dir: Path,
 ) -> None:
-    """Plot ROC curves for SAE vs Raw (val split) if matplotlib available."""
+    """Plot AUROC comparison points for all learned baselines on the val split.
+
+    Note: we only have summary metrics in ``results`` here, not raw probabilities,
+    so this routine is no longer used by the main classification pipeline; the
+    in-domain numbers are saturated and a real ROC needs ``y_prob`` arrays to be
+    informative. See ``scripts/plot_in_domain_roc.py`` for a curve plot that
+    re-fits the classifier and uses real probabilities.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from sklearn.metrics import roc_curve as _unused  # noqa: F401
     except ImportError:
-        print("matplotlib/sklearn not available, skipping ROC plot.")
+        print("matplotlib not available, skipping ROC plot.")
         return
 
     fig, ax = plt.subplots(figsize=(6, 5))
 
-    for method in ("SAE", "Raw"):
+    for method in ("SAE", "Raw", "Behavioral"):
         val_r = results[method][0]
-        # We don't have raw y_prob here, so plot a point instead
-        ax.scatter([1 - val_r.accuracy], [val_r.auroc], label=f"{method} (AUROC={val_r.auroc:.3f})", s=100)
+        ax.scatter(
+            [1 - val_r.accuracy],
+            [val_r.accuracy],
+            label=f"{method} (AUROC={val_r.auroc:.3f})",
+            s=100,
+        )
 
     ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Chance")
-    ax.set_xlabel("1 - Specificity")
-    ax.set_ylabel("AUROC")
+    ax.set_xlabel("False positive rate (1 - specificity)")
+    ax.set_ylabel("True positive rate (sensitivity)")
     ax.set_title("Classifier Comparison (Validation)")
     ax.legend()
     ax.set_xlim(0, 1)
@@ -173,7 +198,7 @@ def _plot_metric_bars(
     aurocs = []
     f1s = []
     accs = []
-    for method in ("SAE", "Raw", "Chance"):
+    for method in ("SAE", "Raw", "Behavioral", "Chance"):
         val_r = results[method][0]
         methods.append(method)
         aurocs.append(val_r.auroc)
@@ -190,7 +215,7 @@ def _plot_metric_bars(
     ax.set_xticks(x)
     ax.set_xticklabels(methods)
     ax.set_ylabel("Score")
-    ax.set_title("SAE vs Raw vs Chance (Validation)")
+    ax.set_title("SAE vs Raw vs Behavioral vs Chance (Validation)")
     ax.legend()
     ax.set_ylim(0, 1.05)
     fig.tight_layout()
