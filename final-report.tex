@@ -124,11 +124,32 @@ We distinguish three quantities. The \emph{proxy reward} is the signal optimized
 
 An episode is \emph{honest} if the true objective is achieved. It is \emph{hacked} if the true objective is not achieved but exploit-specific diagnostics exceed a threshold. Episodes that satisfy neither condition are neutral and are excluded from binary classifier training. This label source directly addresses the proposal-review concern about ground truth: labels are not human annotations and are not inferred by the classifier; they come from environment instrumentation.
 
-We train detectors on binary honest-versus-hacked bundles. Each episode consists of activations $x_t \in \mathbb{R}^{128}$ from the policy trunk, rewards, actions, and diagnostic metadata. For an SAE encoder $f$, the episode-level SAE representation is mean-pooled:
+The environment instrumentation differs slightly across domains, but the
+labeling principle is the same. In gridworld, the simulator records whether
+the box ever reaches the goal, together with counts of progress events,
+reversal events, and repeated exploit cycles. In LunarLander, it records
+whether the lander ever completes a successful landing, together with how long
+it remains inside the rewarded hover zone. Gridworld hacking is therefore
+defined by failed task completion plus repeated progress-farming cycles, while
+LunarLander hacking is defined by failed landing plus sustained occupancy of
+the rewarded zone. In both environments, the final label is computed from
+simulator state after the rollout, not from learned predictions.
+
+We train detectors on binary honest-versus-hacked bundles. Each episode
+consists of activations $x_t \in \mathbb{R}^{128}$ from the policy trunk,
+rewards, actions, and diagnostic metadata. For gridworld this metadata
+includes progress/reversal counters and exploit cycles; for LunarLander it
+includes landing status, episode length, and hover-zone exploit counts.
+For an SAE encoder $f$, the episode-level SAE representation is mean-pooled:
 \begin{equation}
   \phi_{\text{SAE}}(\tau) = \frac{1}{T}\sum_{t=1}^{T} f(x_t).
 \end{equation}
-The raw baseline uses $\phi_{\text{raw}}(\tau)=T^{-1}\sum_t x_t$. The behavioral baseline uses coarse statistics such as total reward, episode length, progress/reversal events, mean reward, max/min reward, and positive reward fraction. It intentionally excludes direct label fields such as \code{goal\_reached} and \code{exploit\_cycle\_count} to avoid a tautological classifier.
+The raw baseline uses $\phi_{\text{raw}}(\tau)=T^{-1}\sum_t x_t$.
+The behavioral baseline uses coarse statistics such as total reward,
+episode length, progress/reversal events, mean reward, max/min reward, and
+positive reward fraction. It intentionally excludes the direct completion and
+exploit counters used to define the labels, so the behavioral baseline is not
+a tautological restatement of simulator-side ground truth.
 
 \section{Environments}
 
