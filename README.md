@@ -387,6 +387,73 @@ This project is grounded in the following observations from the AI safety litera
 
 - **Sparse autoencoders can decompose RL agent activations into interpretable features** (DuPlessie, MIT PRIMES 2024), and SAE features on reward models can detect safety-relevant patterns (SAFER, 2025).
 
+## Reproducing the Final Report
+
+The exact commands and reference data below correspond to the runs reported in `final-report.tex`. The rougher snippets earlier in this README show the generic CLIs; the commands here are the specific invocations whose outputs populate the tables and figures in the report.
+
+### Exact training and collection commands
+
+Gridworld seed0 checkpoint (used for the in-domain and source-of-transfer experiments):
+
+```bash
+python scripts/train_gridworld_ppo.py \
+  --total-updates 300 --checkpoint-interval 15 \
+  --num-envs 32 --rollout-steps 256 --seed 0 --device cpu \
+  --escalation-power 2.0 --goal-bonus 2.0 --no-terminate-on-goal \
+  --checkpoint-dir artifacts/checkpoints/gridworld_hack
+```
+
+Main gridworld activation bundle:
+
+```bash
+python scripts/collect_activations.py \
+  artifacts/checkpoints/gridworld_hack/update_00300.pt \
+  --num-episodes 3000 --min-exploit-cycles 2 --device cpu \
+  --output-dir artifacts/activations/hack_raw --seed 42 --skip-split
+```
+
+Main LunarLander checkpoint:
+
+```bash
+python scripts/train_lunar_ppo.py \
+  --zone-reward 1.0 --goal-bonus 20.0 --max-steps 600 \
+  --total-updates 800 --checkpoint-interval 50 \
+  --num-envs 16 --rollout-steps 128 --seed 0 --device cpu \
+  --checkpoint-dir artifacts/checkpoints/lunar_hack
+```
+
+The transfer-evaluation script uses exact candidate thresholds drawn from observed validation probabilities rather than a fixed grid; this avoids missing useful thresholds when probabilities are compressed after domain shift.
+
+### Top SAE features (final in-domain classifiers)
+
+Gridworld — positive `Hacked − honest` means more active in hacked episodes:
+
+| Feature | Honest mean | Hacked mean | Hacked − honest | Main direction |
+|--------:|------------:|------------:|----------------:|:--------------:|
+| 941     | 1.194       | 0.134       | −1.060          | honest         |
+| 730     | 0.380       | 0.066       | −0.314          | honest         |
+| 686     | 0.000       | 0.400       | +0.400          | hacked         |
+| 253     | 0.475       | 0.031       | −0.445          | honest         |
+| 851     | 0.000       | 0.192       | +0.192          | hacked         |
+
+LunarLander:
+
+| Feature | Honest mean | Hacked mean | Hacked − honest | Main direction |
+|--------:|------------:|------------:|----------------:|:--------------:|
+| 649     | 0.106       | 0.463       | +0.357          | hacked         |
+| 104     | 0.080       | 0.361       | +0.281          | hacked         |
+| 822     | 0.342       | 0.052       | −0.289          | honest         |
+| 590     | 0.188       | 0.056       | −0.132          | honest         |
+| 145     | 0.087       | 0.211       | +0.124          | hacked         |
+
+### Reviewer feedback traceability
+
+- **Ground-truth labels (proposal review):** simulator-side labels are computed from `goal_reached`, exploit-cycle counters, progress/reversal counters, and Lunar zone steps. The classifier does not see these label fields directly. See report §3 and §6.
+- **Cross-task feature standardization (proposal review):** the project does not assume arbitrary SAE features are aligned across tasks. We use a shared 128-dim policy trunk, mean-pooled episode aggregation, and a pooled grid+Lunar SAE dictionary, then evaluate calibrated transfer directly (report §7.4). A target-domain validation set is needed to resolve sign polarity, as documented in the Grid → Lunar sign-flip discussion.
+- **SAE sparsity (check-in review):** the final experiments raise the L1 penalty rather than switching to Top-K. Mean L0 falls from ~377/1024 at the midpoint to ~35/1024 in the final gridworld SAE, while in-domain test AUROC remains at 1.000 (report Table 2).
+- **Statistical comparison (final pass):** all transfer AUROC numbers carry 95% stratified-bootstrap confidence intervals, and SAE-vs-Raw differences carry paired-bootstrap p-values (report §7.3 and §7.4).
+- **Causal feature evidence (final pass):** report §7.5 adds single-feature ablation experiments. A single honest-selective gridworld feature (941) accounts for 0.41 of the 0.49-above-chance AUROC margin in cross-seed transfer.
+
 ## Setup
 
 ```bash

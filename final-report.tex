@@ -51,7 +51,7 @@
 
 \author{%
 \begin{tabular}{ccc}
-Moira McDermott & Himanshu Ranjan & Mayank\\
+Moira McDermott & Himanshu Ranjan & Fnu Mayank\\
 \multicolumn{3}{c}{COMPSCI 690S Final Project}
 \end{tabular}
 }
@@ -112,7 +112,7 @@ Amodei et al.~\cite{amodei2016concrete} introduced reward hacking as one of five
 The closest LLM analogue to our setting is reward-model overoptimization. Gao et al.~\cite{gao2023scalinglaws} measure how proxy-reward optimization diverges from a gold reward as a function of model size and KL budget, formalizing Goodhart-style dynamics in RLHF. Wilhelm et al.~\cite{wilhelm2026monitoring} propose monitoring emergent reward hacking during generation by inspecting internal LLM activations, and Zhang et al.~\cite{zhang2025sarm} replace opaque reward-model hidden states with monosemantic SAE features (SARM) to make reward scores attributable to interpretable directions. We adapt the same internal-monitoring intuition to small PPO policies in classical RL rather than to LLM reward models.
 
 \paragraph{Sparse autoencoders and mechanistic interpretability.}
-SAEs learn an overcomplete sparse dictionary that reconstructs dense activations from a small number of active latent features. Bricken et al.~\cite{bricken2023monosemanticity} demonstrated that dictionary learning can recover interpretable features in small transformer models, and Templeton et al.~\cite{templeton2024scaling} scaled this approach to Claude 3 Sonnet. Concept-selective neurons in vision-language models~\cite{goh2021multimodalneurons} provide earlier evidence, predating SAEs, that small numbers of units can encode interpretable abstractions, suggesting that monosemantic decomposition is not a uniquely transformer phenomenon.
+SAEs learn an overcomplete sparse dictionary that reconstructs dense activations from a small number of active latent features. Bricken et al.~\cite{bricken2023monosemanticity} demonstrated that dictionary learning can recover interpretable features in small transformer models, and Templeton et al.~\cite{templeton2024scaling} scaled this approach to Claude 3 Sonnet.
 
 \paragraph{Interpretability of RL policies.}
 A small but pointed line of work analyzes the internals of RL agents directly. Hilton et al.~\cite{hilton2020understandingrl} apply feature visualization, attribution, and weight-editing to a CoinRun PPO agent's vision model, including hand-disabling neurons to ``blind'' the agent to specific hazards --- the closest precedent for circuit-level analysis of a PPO policy. Greydanus et al.~\cite{greydanus2018visualizingatari} introduce perturbation-based saliency for Atari agents to diagnose whether agents make decisions for the right reasons. These methods are behavioral or input-attribution focused; our SAE features instead provide a sparse, fixed-dictionary decomposition of the same internal state, enabling per-feature ablation rather than per-input perturbation.
@@ -329,7 +329,7 @@ The pooled SAE is a single dictionary trained on activations from both policies,
 
 \begin{table}[H]
 \centering
-\caption{Cross-task transfer using the pooled SAE dictionary. ``Score sign'' is the validation-selected mapping from classifier probability to honest-vs-hacked decision (\code{flipped} means the source-trained classifier assigns higher probability to the wrong class on the target domain and is corrected by inverting the decision). Test \auroc{} is reported with $95\%$ stratified-bootstrap confidence intervals ($n_{\text{boot}}=2000$). Paired-bootstrap differences (Raw $-$ SAE) are reported in the text.}
+\caption{Cross-task transfer using the pooled SAE dictionary. ``Score sign'' is the validation-selected mapping from classifier probability to honest-vs-hacked decision (\code{flipped} means the source-trained classifier assigns higher probability to the wrong class on the target domain and is corrected by inverting the decision). Test \auroc{} is reported with $95\%$ stratified-bootstrap confidence intervals ($n_{\text{boot}}=2000$). Paired-bootstrap differences (SAE $-$ Raw) are reported in the text.}
 \label{tab:crosstask}
 \begin{tabular}{llcrrr}
 \toprule
@@ -343,7 +343,7 @@ Lunar $\rightarrow$ Grid & Raw & as-is   & 0.974 [0.954, 0.989] & 0.906 & 0.919\
 \end{tabular}
 \end{table}
 
-For Grid $\rightarrow$ Lunar, the paired-bootstrap difference Raw $-$ SAE is $\Delta\auroc{}=+0.055$ (95\% CI $[0.021, 0.093]$, $p<0.001$); for Lunar $\rightarrow$ Grid the gap widens to $\Delta\auroc{}=+0.200$ (95\% CI $[0.139, 0.266]$, $p<0.001$). Both gaps exclude zero, so the cross-task superiority of raw activations is statistically significant rather than within bootstrap noise. Together with the cross-seed result above, this gives a consistent picture: SAE features are at least as good as raw activations when the policy distribution shifts only modestly (different seed, same task, same reward), but they lose ground when the entire policy is replaced.
+For Grid $\rightarrow$ Lunar, the paired-bootstrap difference SAE $-$ Raw is $\Delta\auroc{}=-0.055$ (95\% CI $[-0.093, -0.021]$, $p<0.001$); for Lunar $\rightarrow$ Grid the gap widens to $\Delta\auroc{}=-0.200$ (95\% CI $[-0.266, -0.139]$, $p<0.001$). Both intervals exclude zero, so the cross-task superiority of raw activations is statistically significant rather than within bootstrap noise. Together with the cross-seed result above (where the same SAE $-$ Raw convention gives $+0.031$ in favor of SAE), this gives a consistent picture: SAE features are at least as good as raw activations when the policy distribution shifts only modestly (different seed, same task, same reward), but they lose ground when the entire policy is replaced.
 
 \subsection{Top SAE Features}
 \label{sec:topfeatures}
@@ -424,7 +424,7 @@ The proposal stated two hypotheses with concrete success criteria:
 (H1)~``A classifier trained on SAE features will achieve test \auroc{} $\geq 0.70$ in the gridworld setting,'' and
 (H2)~``Top predictive SAE features will correspond to interpretable behavioral concepts.''
 H1 is supported well above the threshold: in-domain test \auroc{} is $1.000$ in both gridworld and Lunar (Table~\ref{tab:indomain}); cross-seed transfer reaches $0.988$ in gridworld and $0.773$--$0.897$ across tasks (Tables~\ref{tab:seedtransfer}, \ref{tab:crosstask}).
-H2 is partially supported: the top gridworld SAE features correlate with progress, reversal, and exploit-cycle counters at $|r| \in [0.25, 0.66]$; the top Lunar features correlate with steps taken, total reward, and zone-step exploits at $|r| \in [0.60, 0.87]$ (Section~\ref{sec:topfeatures}, Tables~\ref{tab:gridtopfeats}, \ref{tab:lunartopfeats}). The proposal's stronger third claim, that SAE classifiers ``outperform raw-activation classifiers by a statistically significant margin,'' is \emph{not} supported by our final results; we discuss this directly below.
+H2 is partially supported: the top gridworld SAE features correlate with progress, reversal, and exploit-cycle counters at $|r| \in [0.25, 0.66]$; the top Lunar features correlate with steps taken, total reward, and zone-step exploits at $|r| \in [0.60, 0.87]$ (Section~\ref{sec:topfeatures}). The proposal's stronger third claim, that SAE classifiers ``outperform raw-activation classifiers by a statistically significant margin,'' is \emph{not} supported by our final results; we discuss this directly below.
 
 \paragraph{What should not be overclaimed.}
 The original proposal hypothesized that SAE-derived features would outperform raw activations across the board. The final evidence is mixed and depends on the type of distribution shift. Raw activations match SAE features in-domain (both saturate at AUROC $1.000$) and significantly \emph{outperform} SAE features in cross-task transfer (Section~7.4, $p<0.001$ in both directions). In contrast, SAE features significantly outperform raw activations in the cross-seed setting where the task is held fixed (Section~7.3, $\Delta\auroc{}=+0.031$, $p<0.001$). The honest interpretation is that SAE features add value when distribution shift is moderate and the input geometry is preserved; raw $128$-dim activations win when the entire policy is replaced. Inspectability of the sparse decomposition (Section~7.5) is a separate, qualitative advantage that does not follow from the AUROC numbers.
@@ -458,9 +458,9 @@ The story is more nuanced than the proposal anticipated. SAE features statistica
 
 \section*{Contributions}
 \begin{itemize}
-    \item Moira McDermott: LunarLander environment, policy, training, and reward implementation
-    \item Himanshu Ranjan: Gridworld environment, policy, training implementation; SAE and classifier implementation
-    \item Mayank: Gridworld environment and reward implementation; transfer evaluation; interpretability analysis
+    \item Himanshu Ranjan: initial gridworld environment, base PPO trainer and policy network, gridworld reward-hacking induction (asymmetric progress shaping with quadratic escalation and faulty goal termination), project scaffolding (\code{pyproject}, evaluation harness, README), and final-report wording revisions.
+    \item Moira McDermott: LunarLander environment wrapper with hover-zone exploit, continuous-action PPO model, Lunar training pipeline, Lunar activation collection, and the explicit H1/H2 hypothesis statement and contributions framing in the final report.
+    \item Fnu Mayank: SAE module and trainer, episode-level classifier, activation collection pipeline, $L_1$ sparsity sweeps, cross-seed and cross-task transfer evaluation with bootstrap confidence intervals, top-feature interpretability analysis and single-feature ablation, lit-review, midpoint report, and final-report draft.
 \end{itemize}
 
 \section*{Acknowledgments}
@@ -546,12 +546,6 @@ Leo Gao, John Schulman, and Jacob Hilton.
 \newblock In \emph{International Conference on Machine Learning (ICML)}, 2023.
 \newblock \url{https://arxiv.org/abs/2210.10760}.
 
-\bibitem{goh2021multimodalneurons}
-Gabriel Goh, Nick Cammarata, Chelsea Voss, Shan Carter, Michael Petrov, Ludwig Schubert, Alec Radford, and Chris Olah.
-\newblock Multimodal neurons in artificial neural networks.
-\newblock \emph{Distill}, 2021.
-\newblock \url{https://distill.pub/2021/multimodal-neurons/}.
-
 \bibitem{hilton2020understandingrl}
 Jacob Hilton, Nick Cammarata, Shan Carter, Gabriel Goh, and Chris Olah.
 \newblock Understanding RL vision.
@@ -582,84 +576,5 @@ Kimin Lee, Kibok Lee, Honglak Lee, and Jinwoo Shin.
 \newblock \url{https://arxiv.org/abs/1807.03888}.
 
 \end{thebibliography}
-
-\appendix
-
-\section{Reproducibility Notes}
-
-\paragraph{Main commands.}
-The final gridworld seed0 checkpoint was trained with:
-\begin{verbatim}
-python scripts/train_gridworld_ppo.py \
-  --total-updates 300 --checkpoint-interval 15 \
-  --num-envs 32 --rollout-steps 256 --seed 0 --device cpu \
-  --escalation-power 2.0 --goal-bonus 2.0 --no-terminate-on-goal \
-  --checkpoint-dir artifacts/checkpoints/gridworld_hack
-\end{verbatim}
-
-The main gridworld activation bundle used:
-\begin{verbatim}
-python scripts/collect_activations.py \
-  artifacts/checkpoints/gridworld_hack/update_00300.pt \
-  --num-episodes 3000 --min-exploit-cycles 2 --device cpu \
-  --output-dir artifacts/activations/hack_raw --seed 42 --skip-split
-\end{verbatim}
-
-The main LunarLander checkpoint used:
-\begin{verbatim}
-python scripts/train_lunar_ppo.py \
-  --zone-reward 1.0 --goal-bonus 20.0 --max-steps 600 \
-  --total-updates 800 --checkpoint-interval 50 \
-  --num-envs 16 --rollout-steps 128 --seed 0 --device cpu \
-  --checkpoint-dir artifacts/checkpoints/lunar_hack
-\end{verbatim}
-
-The transfer-evaluation script uses exact candidate thresholds from observed validation probabilities. This avoids missing useful thresholds when probabilities are compressed after domain shift.
-
-\section{Additional Tables}
-
-\begin{table}[H]
-\centering
-\caption{Gridworld top SAE features from the final in-domain classifier. Positive difference means more active in hacked episodes.}
-\label{tab:gridtopfeats}
-\begin{tabular}{rrrrr}
-\toprule
-Feature & Honest mean & Hacked mean & Hacked--honest & Main direction\\
-\midrule
-941 & 1.194 & 0.134 & -1.060 & honest\\
-730 & 0.380 & 0.066 & -0.314 & honest\\
-686 & 0.000 & 0.400 & 0.400 & hacked\\
-253 & 0.475 & 0.031 & -0.445 & honest\\
-851 & 0.000 & 0.192 & 0.192 & hacked\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{LunarLander top SAE features from the final in-domain classifier. Positive difference means more active in hacked episodes.}
-\label{tab:lunartopfeats}
-\begin{tabular}{rrrrr}
-\toprule
-Feature & Honest mean & Hacked mean & Hacked--honest & Main direction\\
-\midrule
-649 & 0.106 & 0.463 & 0.357 & hacked\\
-104 & 0.080 & 0.361 & 0.281 & hacked\\
-822 & 0.342 & 0.052 & -0.289 & honest\\
-590 & 0.188 & 0.056 & -0.132 & honest\\
-145 & 0.087 & 0.211 & 0.124 & hacked\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\section{Reviewer-Comment Traceability}
-
-\begin{itemize}
-  \item \textbf{Ground truth labels (proposal review).} The final report uses simulator-side labels from \code{goal\_reached}, exploit cycle counters, progress/reversal counters, and Lunar zone steps. Sections 3 and 6 make this explicit and demonstrate that the classifier does not see these label fields directly.
-  \item \textbf{Cross-task feature standardization (proposal review).} We do not assume arbitrary SAE features are aligned across tasks. We use a shared 128-dimensional policy trunk, common mean aggregation, and a pooled grid+Lunar SAE dictionary, then evaluate calibrated transfer directly (Section~7.4). The need for a target-domain validation set to resolve sign polarity is documented in the Grid$\rightarrow$Lunar sign-flip discussion.
-  \item \textbf{SAE sparsity (check-in review).} Following the check-in recommendation, the final experiments increase the $L_1$ penalty rather than switching to Top-$K$. Mean $L_0$ falls from $\sim 377/1024$ at the midpoint to $\sim 35/1024$ in the final gridworld SAE, while in-domain test \auroc{} remains at $1.000$ (Table~\ref{tab:sparsity}).
-  \item \textbf{Statistical comparison (added in final pass).} All transfer AUROC numbers are reported with $95\%$ stratified-bootstrap confidence intervals, and SAE-vs-Raw differences are reported with paired-bootstrap $p$-values rather than left as eyeball comparisons (Sections~7.3 and~7.4).
-  \item \textbf{Causal feature evidence (added in final pass).} Section~\ref{sec:topfeatures} adds single-feature ablation experiments that complement the correlation analysis. A single honest-selective feature (941) accounts for $0.41$ of the $0.49$-above-chance AUROC margin in cross-seed transfer.
-\end{itemize}
 
 \end{document}
