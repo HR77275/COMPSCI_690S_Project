@@ -85,7 +85,12 @@ Reward hacking occurs when an agent maximizes a misspecified proxy reward while 
 
 Reinforcement learning agents are optimized against reward functions that are often only proxies for the designer's true objective. When a proxy is misspecified, stronger optimization can produce \emph{reward hacking}: high proxy reward coupled with poor true-task performance. Classic examples include agents cycling in boat-race environments or exploiting simulator bugs, and recent work shows that specification gaming can generalize from benign-looking shortcuts to more serious reward tampering \cite{leike2017gridworlds, pan2022misspecification, denison2024subterfuge}. A central safety question is therefore not only whether reward hacking can be detected from completed behavior, but whether it leaves an internal representational signature that can be monitored earlier.
 
-This project asks: \emph{Can reward-hacking episodes be detected from the internal activations of an RL policy?} We approach the question through sparse autoencoders (SAEs), which have become a standard tool for decomposing dense neural activations into sparse, more interpretable features \cite{bricken2023monosemanticity, templeton2024scaling}. The core hypothesis is that honest and hacked strategies induce different directions in policy activation space. If those directions can be decomposed into sparse features, then a lightweight classifier may detect reward hacking and identify which internal features are most predictive.
+This project asks: \emph{Can reward-hacking episodes be detected from the internal activations of an RL policy?} We approach the question through sparse autoencoders (SAEs), which have become a standard tool for decomposing dense neural activations into sparse, more interpretable features \cite{bricken2023monosemanticity, templeton2024scaling}. The core hypothesis is that honest and hacked strategies induce different directions in policy activation space. Specifically, we evaluate the following hypotheses:
+\begin{enumerate}
+    \item \textbf{(H1)}~A classifier trained on SAE features will achieve test \auroc{} $\geq 0.70$ in the gridworld setting;
+    \item \textbf{(H2)}~Top predictive SAE features will correspond to interpretable behavioral concepts.
+\end{enumerate}
+If those directions can be decomposed into sparse features, then a lightweight classifier may detect reward hacking and identify which internal features are most predictive.
 
 We make four contributions.
 
@@ -450,6 +455,13 @@ The most valuable next experiments would be: (i)~reward-configuration transfer w
 We asked whether reward-hacking episodes can be detected from the internal activations of an RL policy, and whether the resulting signal admits a mechanistic interpretation. Within the scope of two deliberately hackable testbeds, both answers are yes: an SAE-projected logistic regression detector achieves perfect in-domain separation, retains \auroc{} $0.988$ across gridworld seeds, and recovers $0.77$--$0.90$ of cross-task signal when paired with a small target-domain calibration set. At the level of individual features, the top SAE dimensions are not arbitrary classifier coefficients --- they show class-conditional activation profiles that evolve across an episode (Figure~\ref{fig:featureprofiles}) and correlate with the same simulator-side diagnostics that define ground-truth labels.
 
 The story is more nuanced than the proposal anticipated. SAE features statistically beat raw activations on cross-seed transfer (paired bootstrap $\Delta\auroc{}=+0.031$, $p<0.001$) but lose to raw activations on cross-task transfer (paired bootstrap $\Delta\auroc{}=-0.055$ and $-0.200$, $p<0.001$). The interpretive value of SAE features is supported beyond the AUROC comparison: a single honest-selective feature (gridworld feature 941), when ablated, removes most of the cross-seed AUROC margin (drop of $-0.406$ from baseline $0.988$). This is a causal handle that a raw $128$-dim residual stream does not provide. The natural next experiment is policy-side intervention --- patching SAE-decoded directions back through the policy network and measuring whether the behavioral exploit can be triggered or suppressed --- which would convert the correlational and ablation evidence here into a genuine causal mechanism. Cross-reward-configuration transfer within gridworld would similarly test whether the detector generalizes to exploit forms the SAE has not seen during training.
+
+\section*{Contributions}
+\begin{itemize}
+    \item Moira McDermott: LunarLander environment, policy, training, and reward implementation
+    \item Himanshu Ranjan: Gridworld environment, policy, training implementation; SAE and classifier implementation
+    \item Mayank: Gridworld environment and reward implementation; transfer evaluation; interpretability analysis
+\end{itemize}
 
 \section*{Acknowledgments}
 
